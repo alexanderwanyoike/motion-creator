@@ -17,7 +17,7 @@ import runpod
 
 # Configuration
 MODEL_REPO = "Tencent-Hunyuan/HY-Motion-1.0"
-MODEL_PATH = os.environ.get("MODEL_PATH", "/tmp/hy-motion-1.0")
+MODEL_PATH = os.environ.get("MODEL_PATH", "/runpod-volume/models/hy-motion-1.0")
 DISABLE_PROMPT_ENGINEERING = os.environ.get("DISABLE_PROMPT_ENGINEERING", "False").lower() == "true"
 DEFAULT_NUM_FRAMES = 120  # ~4 seconds at 30fps
 DEFAULT_FPS = 30
