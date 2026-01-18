@@ -31,20 +31,18 @@ RUN git lfs install
 # Upgrade pip and install build tools
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# Install PyTorch with CUDA 12.1 support FIRST
-RUN python -m pip install --no-cache-dir \
-    torch==2.1.0 \
-    torchvision==0.16.0 \
-    torchaudio==2.1.0 \
-    --index-url https://download.pytorch.org/whl/cu121
-
 # Clone HY-Motion-1.0 repository
 WORKDIR /app
 RUN git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /app/hy-motion
 
-# Install HY-Motion requirements
+# Install HY-Motion requirements (includes PyTorch)
 WORKDIR /app/hy-motion
 RUN python -m pip install --no-cache-dir -r requirements.txt
+
+# Reinstall PyTorch with CUDA 12.1 support (in case requirements.txt installed CPU version)
+RUN python -m pip install --no-cache-dir \
+    torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu121
 
 # Install RunPod SDK
 RUN python -m pip install --no-cache-dir runpod>=1.6.0
