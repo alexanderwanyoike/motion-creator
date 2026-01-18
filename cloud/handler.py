@@ -150,12 +150,13 @@ def generate_motion(
 
     # Generate motion using HY-Motion runtime
     # API: text, seeds_csv, duration, cfg_scale, output_format, ...
+    # Valid formats: "fbx" or "dict"
     html_content, fbx_paths, motion_result = runtime.generate_motion(
         text=prompt,
         seeds_csv=str(seed),
         duration=duration,
         cfg_scale=guidance_scale,
-        output_format="npz",  # Get raw data, not FBX
+        output_format="dict",  # Get raw motion data as dict
     )
 
     generation_time = time.time() - start_time
