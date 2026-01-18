@@ -145,16 +145,17 @@ def generate_motion(
         torch.cuda.manual_seed_all(seed)
 
     print(f"Generating motion for: '{prompt}'")
-    print(f"  Duration: {duration}s, FPS: {fps}, Steps: {num_inference_steps}")
+    print(f"  Duration: {duration}s, FPS: {fps}, Seed: {seed}")
     start_time = time.time()
 
     # Generate motion using HY-Motion runtime
-    motion_result = runtime.generate_motion(
+    # API: text, seeds_csv, duration, cfg_scale, output_format, ...
+    html_content, fbx_paths, motion_result = runtime.generate_motion(
         text=prompt,
+        seeds_csv=str(seed),
         duration=duration,
         cfg_scale=guidance_scale,
-        validation_steps=num_inference_steps,
-        seed=seed,
+        output_format="npz",  # Get raw data, not FBX
     )
 
     generation_time = time.time() - start_time
