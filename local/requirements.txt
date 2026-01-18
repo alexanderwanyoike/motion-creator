@@ -1,0 +1,26 @@
+# HY-Motion Local Pipeline
+# For FBX export and Mixamo retargeting (CPU only)
+
+# Core dependencies
+numpy>=1.24.0
+scipy>=1.10.0
+requests>=2.31.0
+tqdm>=4.65.0
+
+# SMPL-H body model
+smplx>=0.1.28
+chumpy
+
+# 3D processing
+trimesh>=4.0.0
+
+# FBX SDK (requires manual installation)
+# See README for installation instructions
+# fbx>=2020.3.0
+
+# CLI
+click>=8.1.0
+rich>=13.0.0
+
+# Configuration
+python-dotenv>=1.0.0
