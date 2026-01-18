@@ -151,7 +151,7 @@ def generate_motion(
     # Generate motion using HY-Motion runtime
     # API: text, seeds_csv, duration, cfg_scale, output_format, ...
     # Valid formats: "fbx" or "dict"
-    html_content, fbx_paths, motion_result = runtime.generate_motion(
+    html_content, fbx_paths, model_output = runtime.generate_motion(
         text=prompt,
         seeds_csv=str(seed),
         duration=duration,
@@ -162,41 +162,70 @@ def generate_motion(
     generation_time = time.time() - start_time
     print(f"Motion generated in {generation_time:.2f}s")
 
-    # Debug: print what we got back
-    print(f"motion_result type: {type(motion_result)}")
-    if isinstance(motion_result, dict):
-        print(f"motion_result keys: {list(motion_result.keys())}")
-        for k, v in motion_result.items():
-            print(f"  {k}: type={type(v)}, shape={getattr(v, 'shape', 'N/A')}, dtype={getattr(v, 'dtype', 'N/A')}")
-    elif isinstance(motion_result, (list, tuple)):
-        print(f"motion_result length: {len(motion_result)}")
-        for i, item in enumerate(motion_result[:3]):  # First 3 items
-            print(f"  [{i}]: type={type(item)}")
+    # model_output is a dict with keys:
+    # - latent_denorm: (B, L, 201) raw motion
+    # - keypoints3d: (B, L, J, 3) 3D joint positions
+    # - rot6d: (B, L, J, 6) 6D rotations
+    # - transl: (B, L, 3) root translation
+    # - root_rotations_mat: (B, L, 3, 3) root rotation matrices
+    # - text: input prompt
+    print(f"model_output type: {type(model_output)}")
+    if isinstance(model_output, dict):
+        print(f"model_output keys: {list(model_output.keys())}")
 
-    # Extract motion data
-    motion = motion_result
-    if hasattr(motion_result, 'motion'):
-        motion = motion_result.motion
-    if hasattr(motion, 'cpu'):
-        motion = motion.cpu().numpy()
-    if not isinstance(motion, np.ndarray):
-        motion = np.array(motion)
+    # Helper to convert tensors to numpy
+    def to_numpy(x):
+        if hasattr(x, 'cpu'):
+            x = x.cpu()
+        if hasattr(x, 'numpy'):
+            x = x.numpy()
+        return np.array(x) if not isinstance(x, np.ndarray) else x
 
-    num_frames = motion.shape[0] if motion.ndim >= 1 else int(duration * fps)
-
+    # Extract motion data from model_output dict
     motion_data = {
-        "motion": motion,
         "fps": fps,
         "duration": duration,
-        "num_frames": num_frames,
     }
 
-    # If motion is in the expected 201-dim format, split out components
-    if motion.ndim >= 1 and motion.shape[-1] == 201:
-        motion_data["root_translation"] = motion[..., :3]
-        motion_data["root_orientation"] = motion[..., 3:9]
-        motion_data["joint_rotations"] = motion[..., 9:135]
-        motion_data["joint_positions"] = motion[..., 135:201]
+    if isinstance(model_output, dict):
+        # Get the 201-dim latent motion representation
+        if "latent_denorm" in model_output:
+            latent = to_numpy(model_output["latent_denorm"])
+            # Remove batch dimension if present: (B, L, 201) -> (L, 201)
+            if latent.ndim == 3 and latent.shape[0] == 1:
+                latent = latent[0]
+            motion_data["motion"] = latent
+            motion_data["num_frames"] = latent.shape[0]
+
+            # Split 201-dim into components
+            if latent.shape[-1] == 201:
+                motion_data["root_translation"] = latent[..., :3]
+                motion_data["root_orientation"] = latent[..., 3:9]
+                motion_data["joint_rotations"] = latent[..., 9:135]
+                motion_data["joint_positions"] = latent[..., 135:201]
+
+        # Also include other useful data
+        if "keypoints3d" in model_output:
+            kp = to_numpy(model_output["keypoints3d"])
+            if kp.ndim == 4 and kp.shape[0] == 1:
+                kp = kp[0]
+            motion_data["keypoints3d"] = kp
+
+        if "rot6d" in model_output:
+            rot = to_numpy(model_output["rot6d"])
+            if rot.ndim == 4 and rot.shape[0] == 1:
+                rot = rot[0]
+            motion_data["rot6d"] = rot
+
+        if "transl" in model_output:
+            transl = to_numpy(model_output["transl"])
+            if transl.ndim == 3 and transl.shape[0] == 1:
+                transl = transl[0]
+            motion_data["transl"] = transl
+    else:
+        # Fallback for unexpected format
+        motion_data["motion"] = to_numpy(model_output)
+        motion_data["num_frames"] = int(duration * fps)
 
     return {
         "motion_data": motion_data,
