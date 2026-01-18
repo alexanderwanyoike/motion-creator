@@ -59,6 +59,7 @@ def download_models_if_needed():
         # (repo_id, local_subdir, optional)
         (f"tencent/HY-Motion-1.0", f"tencent/{MODEL_NAME}", False),
         ("openai/clip-vit-large-patch14", "clip-vit-large-patch14", False),
+        ("Qwen/Qwen3-8B", "Qwen3-8B", False),  # Text encoder for HY-Motion
     ]
 
     for repo_id, local_subdir, optional in models_to_download:
