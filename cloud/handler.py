@@ -15,36 +15,84 @@ import numpy as np
 import runpod
 
 # Add HY-Motion to path
-sys.path.insert(0, "/app/hy-motion")
+HY_MOTION_DIR = "/app/hy-motion"
+sys.path.insert(0, HY_MOTION_DIR)
 
 # Configuration
-MODEL_PATH = os.environ.get("MODEL_PATH", "/runpod-volume/models/HY-Motion-1.0")
-MODEL_REPO = "tencent/HY-Motion-1.0"
+VOLUME_PATH = os.environ.get("VOLUME_PATH", "/runpod-volume")
+USE_LITE_MODEL = os.environ.get("USE_LITE_MODEL", "false").lower() == "true"
 DEFAULT_FPS = 30
+
+# Model info
+MODEL_NAME = "HY-Motion-1.0-Lite" if USE_LITE_MODEL else "HY-Motion-1.0"
 
 # Global runtime reference
 runtime = None
 
 
-def download_model_if_needed():
-    """Download model from HuggingFace if not present."""
+def setup_model_symlinks():
+    """Create symlinks from ckpts/ to network volume where models are stored."""
+    ckpts_dir = os.path.join(HY_MOTION_DIR, "ckpts")
+    volume_ckpts = os.path.join(VOLUME_PATH, "ckpts")
+
+    # Create volume ckpts dir if needed
+    os.makedirs(volume_ckpts, exist_ok=True)
+
+    # Remove existing ckpts dir if it's not a symlink
+    if os.path.exists(ckpts_dir) and not os.path.islink(ckpts_dir):
+        import shutil
+        shutil.rmtree(ckpts_dir)
+
+    # Create symlink
+    if not os.path.exists(ckpts_dir):
+        os.symlink(volume_ckpts, ckpts_dir)
+        print(f"Created symlink: {ckpts_dir} -> {volume_ckpts}")
+
+
+def download_models_if_needed():
+    """Download required models from HuggingFace if not present."""
     from huggingface_hub import snapshot_download
 
-    # Check if model exists by looking for config.yml
-    config_path = os.path.join(MODEL_PATH, "config.yml")
-    if os.path.exists(config_path):
-        print(f"Model already exists at {MODEL_PATH}")
-        return MODEL_PATH
+    ckpts_dir = os.path.join(VOLUME_PATH, "ckpts")
 
-    print(f"Downloading {MODEL_REPO} to {MODEL_PATH}...")
-    os.makedirs(MODEL_PATH, exist_ok=True)
-    snapshot_download(
-        repo_id=MODEL_REPO,
-        local_dir=MODEL_PATH,
-        local_dir_use_symlinks=False,
-    )
-    print("Download complete!")
-    return MODEL_PATH
+    models_to_download = [
+        # (repo_id, local_subdir, optional)
+        (f"tencent/HY-Motion-1.0", f"tencent/{MODEL_NAME}", False),
+        ("openai/clip-vit-large-patch14", "clip-vit-large-patch14", False),
+    ]
+
+    for repo_id, local_subdir, optional in models_to_download:
+        local_path = os.path.join(ckpts_dir, local_subdir)
+
+        # Check if already downloaded (look for any files)
+        if os.path.exists(local_path) and os.listdir(local_path):
+            print(f"Model already exists: {local_subdir}")
+            continue
+
+        print(f"Downloading {repo_id} to {local_path}...")
+        try:
+            os.makedirs(local_path, exist_ok=True)
+
+            # For tencent model, we need to download specific subfolder
+            if repo_id == "tencent/HY-Motion-1.0":
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=os.path.join(ckpts_dir, "tencent"),
+                    local_dir_use_symlinks=False,
+                    allow_patterns=[f"{MODEL_NAME}/*"],
+                )
+            else:
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=local_path,
+                    local_dir_use_symlinks=False,
+                )
+            print(f"Downloaded: {local_subdir}")
+        except Exception as e:
+            if optional:
+                print(f"Optional model {repo_id} not downloaded: {e}")
+            else:
+                raise
 
 
 def load_model():
@@ -54,22 +102,27 @@ def load_model():
     if runtime is not None:
         return runtime
 
-    model_path = download_model_if_needed()
+    # Set up symlinks and download models
+    setup_model_symlinks()
+    download_models_if_needed()
 
-    print(f"Loading HY-Motion-1.0 from {model_path}...")
+    print(f"Loading {MODEL_NAME}...")
     start_time = time.time()
+
+    # Change to hy-motion directory so relative paths work
+    os.chdir(HY_MOTION_DIR)
 
     # Import HY-Motion runtime
     from hymotion.utils.t2m_runtime import T2MRuntime
 
-    # Initialize runtime
+    # Model path relative to hy-motion dir
+    model_path = f"ckpts/tencent/{MODEL_NAME}"
     config_path = os.path.join(model_path, "config.yml")
-    ckpt_name = "latest.ckpt"
 
     runtime = T2MRuntime(
         config_path=config_path,
-        ckpt_name=ckpt_name,
-        device_ids=[0],  # Use first GPU
+        ckpt_name="latest.ckpt",
+        device_ids=[0],
         prompt_engineering_model_path=None,
         prompt_engineering_host=None,
     )
@@ -90,17 +143,6 @@ def generate_motion(
 ) -> dict[str, Any]:
     """
     Generate SMPL-H motion from text prompt.
-
-    Args:
-        prompt: Text description of the motion
-        duration: Duration in seconds
-        fps: Frames per second
-        guidance_scale: CFG scale for generation
-        num_inference_steps: Number of diffusion steps
-        seed: Random seed for reproducibility
-
-    Returns:
-        Dictionary containing motion data and metadata
     """
     global runtime
 
@@ -108,14 +150,16 @@ def generate_motion(
         load_model()
 
     # Set random seed if provided
-    if seed is not None:
-        import torch
-        import random
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+    if seed is None:
+        seed = int(time.time()) % 2**32
+
+    import torch
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
     print(f"Generating motion for: '{prompt}'")
     print(f"  Duration: {duration}s, FPS: {fps}, Steps: {num_inference_steps}")
@@ -127,15 +171,13 @@ def generate_motion(
         duration=duration,
         cfg_scale=guidance_scale,
         validation_steps=num_inference_steps,
-        seed=seed if seed is not None else int(time.time()),
+        seed=seed,
     )
 
     generation_time = time.time() - start_time
     print(f"Motion generated in {generation_time:.2f}s")
 
-    # Extract motion data - HY-Motion outputs SMPL-H format
-    # The output contains motion data with shape (T, 201) where:
-    # D = 3 (root trans) + 6 (root orient) + 21*6 (joint rotations) + 22*3 (joint positions)
+    # Extract motion data
     motion = motion_result
     if hasattr(motion_result, 'motion'):
         motion = motion_result.motion
@@ -171,6 +213,7 @@ def generate_motion(
             "num_inference_steps": num_inference_steps,
             "seed": seed,
             "generation_time": generation_time,
+            "model": MODEL_NAME,
         },
     }
 
@@ -193,29 +236,13 @@ def encode_numpy_arrays(data: dict) -> dict:
 
 
 def handler(job: dict) -> dict:
-    """
-    RunPod serverless handler.
-
-    Expected input format:
-    {
-        "input": {
-            "prompt": "person walking forward",
-            "duration": 4.0,
-            "fps": 30,
-            "guidance_scale": 7.5,
-            "num_inference_steps": 50,
-            "seed": null
-        }
-    }
-    """
+    """RunPod serverless handler."""
     job_input = job.get("input", {})
 
-    # Validate required fields
     prompt = job_input.get("prompt")
     if not prompt:
         return {"error": "Missing required field: prompt"}
 
-    # Extract optional parameters with defaults
     params = {
         "prompt": prompt,
         "duration": job_input.get("duration", 4.0),
@@ -227,10 +254,7 @@ def handler(job: dict) -> dict:
 
     try:
         result = generate_motion(**params)
-
-        # Encode numpy arrays for JSON transport
         result["motion_data"] = encode_numpy_arrays(result["motion_data"])
-
         return result
 
     except Exception as e:
