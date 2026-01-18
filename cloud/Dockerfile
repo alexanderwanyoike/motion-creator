@@ -12,24 +12,31 @@ ENV MODEL_PATH=/runpod-volume/models/hy-motion-1.0
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     python3.10 \
+    python3.10-dev \
     python3.10-venv \
     python3-pip \
     git \
     wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set python3.10 as default
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 \
-    && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 
-# Upgrade pip
-RUN pip install --upgrade pip
+# Upgrade pip and install build tools
+RUN python -m pip install --upgrade pip setuptools wheel
 
 # Install PyTorch with CUDA 12.1 support
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Using --no-cache-dir to reduce memory usage during build
+RUN python -m pip install --no-cache-dir \
+    torch \
+    torchvision \
+    torchaudio \
+    --index-url https://download.pytorch.org/whl/cu121
 
 # Install HY-Motion dependencies
-RUN pip install \
+RUN python -m pip install --no-cache-dir \
     transformers>=4.36.0 \
     accelerate>=0.25.0 \
     diffusers>=0.25.0 \
@@ -44,7 +51,7 @@ RUN pip install \
     trimesh
 
 # Install RunPod SDK
-RUN pip install runpod>=1.6.0
+RUN python -m pip install --no-cache-dir runpod>=1.6.0
 
 # Create working directory
 WORKDIR /app
