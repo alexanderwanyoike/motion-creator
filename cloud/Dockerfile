@@ -36,18 +36,17 @@ RUN python -m pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu121
 
 # Install HY-Motion dependencies
+# Note: chumpy removed - not needed for inference, only for SMPL fitting
 RUN python -m pip install --no-cache-dir \
+    numpy>=1.24.0 \
     transformers>=4.36.0 \
     accelerate>=0.25.0 \
     diffusers>=0.25.0 \
     safetensors>=0.4.0 \
-    numpy>=1.24.0 \
     scipy>=1.10.0 \
     einops>=0.7.0 \
     tqdm>=4.65.0 \
     huggingface_hub>=0.20.0 \
-    smplx>=0.1.28 \
-    chumpy \
     trimesh
 
 # Install RunPod SDK

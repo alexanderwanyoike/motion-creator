@@ -7,9 +7,9 @@ scipy>=1.10.0
 requests>=2.31.0
 tqdm>=4.65.0
 
-# SMPL-H body model
-smplx>=0.1.28
-chumpy
+# SMPL-H body model (optional - only if you need mesh output)
+# smplx>=0.1.28
+# Note: chumpy removed due to build issues - not needed for retargeting
 
 # 3D processing
 trimesh>=4.0.0
