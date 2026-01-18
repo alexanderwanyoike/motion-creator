@@ -190,9 +190,9 @@ def save_motion_npz(motion_data: dict, output_path: Path):
     help="Output file path (.fbx or .npz)",
 )
 @click.option(
-    "--num-frames", "-n",
-    default=120,
-    help="Number of frames to generate (default: 120)",
+    "--duration", "-d",
+    default=4.0,
+    help="Duration in seconds (default: 4.0)",
 )
 @click.option(
     "--fps",
@@ -233,7 +233,7 @@ def save_motion_npz(motion_data: dict, output_path: Path):
 def main(
     prompt: str,
     output: str,
-    num_frames: int,
+    duration: float,
     fps: int,
     guidance_scale: float,
     steps: int,
@@ -264,7 +264,7 @@ def main(
 
     console.print(f"[bold]HY-Motion Generator[/bold]")
     console.print(f"  Prompt: {prompt}")
-    console.print(f"  Frames: {num_frames} @ {fps} fps")
+    console.print(f"  Duration: {duration}s @ {fps} fps")
     console.print(f"  Output: {output_path}")
     console.print()
 
@@ -276,7 +276,7 @@ def main(
         console.print("[bold blue]Step 1/3:[/bold blue] Generating motion on RunPod...")
         motion_data, metadata = client.generate_motion(
             prompt=prompt,
-            num_frames=num_frames,
+            duration=duration,
             fps=fps,
             guidance_scale=guidance_scale,
             num_inference_steps=steps,

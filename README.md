@@ -1,6 +1,6 @@
 # HY-Motion Cloud Pipeline
 
-Generate AI motion animations from text prompts using HY-Motion-1.0 on RunPod serverless, with local FBX export and Mixamo retargeting.
+Generate AI motion animations from text prompts using [HY-Motion-1.0](https://github.com/Tencent-Hunyuan/HY-Motion-1.0) on RunPod serverless, with local FBX export and Mixamo retargeting.
 
 ## Architecture
 
@@ -8,17 +8,15 @@ Generate AI motion animations from text prompts using HY-Motion-1.0 on RunPod se
 ┌────────────────────────┐     ┌──────────────────────────────┐
 │  Your Machine (Local)  │     │    RunPod Serverless (GPU)   │
 │                        │     │                              │
-│  1. Send prompt  ─────────▶  │  HY-Motion-1.0 Full          │
-│                        │     │  - Text encoding             │
-│                        │     │  - Motion generation         │
+│  1. Send prompt  ─────────▶  │  HY-Motion-1.0 (1B params)   │
+│                        │     │  - Text → Motion generation  │
 │  2. Receive motion ◀──────── │  - Output: SMPL-H data       │
-│     (.npy/.npz)        │     │    (~100KB)                  │
+│     (base64 numpy)     │     │    (~100KB)                  │
 │                        │     └──────────────────────────────┘
 │  3. Local processing:  │
 │     - Retarget to      │
 │       Mixamo skeleton  │
 │     - Export to FBX    │
-│     (CPU only, fast)   │
 │                        │
 │  4. Output: .fbx       │
 └────────────────────────┘
@@ -28,113 +26,118 @@ Generate AI motion animations from text prompts using HY-Motion-1.0 on RunPod se
 
 | Component | Cost |
 |-----------|------|
-| A100 40GB (20 hrs/month) | ~$35/month |
-| Storage | ~$0.80/month |
-| **Per-animation** | **~$0.18** |
+| 48GB GPU (20 hrs/month) | ~$25-40/month |
+| Network Volume (20GB) | ~$2/month |
+| **Per-animation** | **~$0.15-0.20** |
 
-## Quick Start
+---
 
-### 1. Push to GitHub (Auto-builds Docker Image)
+## Setup Guide
+
+### Step 1: Push to GitHub
+
+The Docker image builds automatically via GitHub Actions:
 
 ```bash
-# Initialize repo and push
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/motion-creator.git
-git branch -M main
-git push -u origin main
+git clone https://github.com/YOUR_USERNAME/motion-creator.git
+cd motion-creator
+git push origin main
 ```
 
-GitHub Actions will automatically build and push the Docker image to GitHub Container Registry.
+Image will be at: `ghcr.io/YOUR_USERNAME/motion-creator/hy-motion:latest`
 
-**After the workflow completes**, your image will be at:
+**Make the package public** (required for RunPod to pull it):
+1. Go to github.com → Your Profile → Packages
+2. Click `motion-creator/hy-motion`
+3. Package Settings → Change visibility → **Public**
+
+### Step 2: Create RunPod Account & Add Credits
+
+1. Sign up at [runpod.io](https://www.runpod.io)
+2. Go to [Billing](https://www.runpod.io/console/user/billing) → Add $10-25 credits
+
+### Step 3: Get Your API Key
+
+1. Go to [Settings → API Keys](https://www.runpod.io/console/user/settings)
+2. Click **Create API Key**
+3. Save it somewhere safe
+
+```bash
+export RUNPOD_API_KEY="rp_xxxxxxxxxxxxxxxx"
 ```
-ghcr.io/YOUR_USERNAME/motion-creator/hy-motion:latest
-```
 
-### 2. Make Package Public (Required for RunPod)
+### Step 4: Create Network Volume
 
-RunPod needs to pull your image, so it must be public:
+The model weights (~8GB) are stored here and persist between cold starts:
 
-1. Go to your GitHub profile → **Packages**
-2. Find `motion-creator/hy-motion`
-3. Click **Package settings** → **Change visibility** → **Public**
-
-### 3. Create RunPod Serverless Endpoint
-
-1. Go to [RunPod Serverless Console](https://www.runpod.io/console/serverless)
-2. Click **New Endpoint**
+1. Go to [Storage → Network Volumes](https://www.runpod.io/console/user/storage)
+2. Click **+ New Network Volume**
 3. Configure:
-   - **Container Image**: `ghcr.io/YOUR_USERNAME/motion-creator/hy-motion:latest`
-   - **GPU**: A100 40GB
-   - **Worker Type**: Flex (scale to zero)
-   - **Max Workers**: 1-2
-   - **Idle Timeout**: 5 seconds
-4. Click **Create**
-5. Copy your **Endpoint ID** from the dashboard
+   - **Name:** `hy-motion-models`
+   - **Region:** Pick one with good GPU availability (check Step 5 first)
+   - **Size:** 20 GB
+4. **Remember the region** - your endpoint must be in the same region
 
-### 4. Set Up Local Environment
+### Step 5: Create Serverless Endpoint
+
+1. Go to [Serverless → Endpoints](https://www.runpod.io/console/serverless)
+2. Click **+ New Endpoint**
+3. Scroll down to **Container Image** and enter:
+   ```
+   ghcr.io/YOUR_USERNAME/motion-creator/hy-motion:latest
+   ```
+4. Select **48 GB GPU** (HY-Motion needs ~26GB VRAM)
+5. Configure workers:
+   - **Max Workers:** 1
+   - **Idle Timeout:** 5 seconds
+   - **Execution Timeout:** 600 seconds
+6. Under **Advanced** → **Network Volume**:
+   - Select your `hy-motion-models` volume
+   - Mount path: `/runpod-volume`
+7. Click **Create**
+8. Copy your **Endpoint ID**
+
+```bash
+export RUNPOD_ENDPOINT_ID="your-endpoint-id"
+```
+
+### Step 6: First Run (Downloads Model)
+
+The first request downloads the model to your network volume (~5-10 min):
 
 ```bash
 cd local
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Install FBX SDK (required for .fbx export)
-# Download from: https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-3
-# Follow Autodesk's installation instructions for Python bindings
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your RunPod credentials
-```
-
-### 5. Generate Motion
-
-```bash
-# Set credentials
-export RUNPOD_API_KEY="your-api-key"
+export RUNPOD_API_KEY="your-key"
 export RUNPOD_ENDPOINT_ID="your-endpoint-id"
 
-# Generate animation
-python client.py --prompt "character walking forward" --output walk.fbx
+# First run - will download model
+python client.py -p "person walking forward" -o walk.npz
+```
+
+Watch the logs in RunPod dashboard to see download progress.
+
+### Step 7: Generate Animations
+
+After the model is cached, generation is fast (~30-60s cold start, ~5-10s generation):
+
+```bash
+# Basic usage
+python client.py -p "character doing a backflip" -o backflip.npz
 
 # With options
 python client.py \
-  --prompt "jumping with arms raised" \
-  --output jump.fbx \
-  --num-frames 90 \
+  -p "person running and then jumping" \
+  -o run_jump.npz \
+  --duration 5.0 \
   --fps 30 \
   --seed 42
 ```
 
-## File Structure
-
-```
-motion-creator/
-├── .github/
-│   └── workflows/
-│       └── build-push.yml   # CI/CD: builds & pushes to ghcr.io
-│
-├── cloud/                    # RunPod serverless (GPU)
-│   ├── Dockerfile           # Container with HY-Motion
-│   ├── handler.py           # Serverless handler
-│   └── download_model.py    # Model downloader
-│
-├── local/                    # Local pipeline (CPU)
-│   ├── requirements.txt     # Python dependencies
-│   ├── client.py            # CLI tool
-│   ├── retarget.py          # SMPL-H → Mixamo conversion
-│   └── export_fbx.py        # FBX file export
-│
-└── README.md
-```
+---
 
 ## CLI Reference
 
@@ -142,171 +145,75 @@ motion-creator/
 Usage: client.py [OPTIONS]
 
 Options:
-  -p, --prompt TEXT          Text description of motion (required)
-  -o, --output PATH          Output file path (.fbx or .npz) (required)
-  -n, --num-frames INTEGER   Number of frames (default: 120)
+  -p, --prompt TEXT          Motion description (required)
+  -o, --output PATH          Output file (.fbx or .npz) (required)
+  --duration FLOAT           Duration in seconds (default: 4.0)
   --fps INTEGER              Frames per second (default: 30)
-  -g, --guidance-scale FLOAT Guidance scale (default: 7.5)
+  -g, --guidance-scale FLOAT CFG scale (default: 7.5)
   -s, --steps INTEGER        Diffusion steps (default: 50)
   --seed INTEGER             Random seed for reproducibility
-  --save-raw / --no-save-raw Also save raw .npz data
-  --api-key TEXT             RunPod API key
-  --endpoint-id TEXT         RunPod endpoint ID
-  --help                     Show this message and exit
+  --save-raw                 Also save raw motion data
+  --help                     Show this message
 ```
 
-## Environment Variables
+---
 
-Create a `.env` file in the `local/` directory:
+## File Structure
 
-```env
-RUNPOD_API_KEY=your_runpod_api_key_here
-RUNPOD_ENDPOINT_ID=your_endpoint_id_here
+```
+motion-creator/
+├── .github/workflows/
+│   └── build-push.yml      # CI/CD: builds & pushes to ghcr.io
+├── cloud/
+│   ├── Dockerfile          # Clones HY-Motion, installs deps
+│   └── handler.py          # RunPod serverless handler
+├── local/
+│   ├── client.py           # CLI tool
+│   ├── retarget.py         # SMPL-H → Mixamo conversion
+│   ├── export_fbx.py       # FBX export (requires FBX SDK)
+│   └── requirements.txt
+└── README.md
 ```
 
-## FBX SDK Installation
-
-The FBX export requires Autodesk's FBX SDK with Python bindings:
-
-1. Download FBX SDK from [Autodesk Developer Network](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-3)
-2. Install the SDK following Autodesk's instructions
-3. Install Python bindings (usually in the SDK's `lib/Python` directory)
-
-If you can't install FBX SDK, use `.npz` output format instead:
-
-```bash
-python client.py --prompt "walking" --output walk.npz
-```
-
-## Using with flip-frenzy
-
-The exported FBX files use standard Mixamo skeleton naming, compatible with flip-frenzy characters:
-
-1. Generate animation: `python client.py -p "flip trick" -o flip.fbx`
-2. Import `flip.fbx` into your game engine
-3. Apply to any Mixamo-rigged character
-4. The skeleton mapping should work automatically
+---
 
 ## Troubleshooting
 
-### "FBX SDK not available"
-Install FBX SDK from Autodesk, or use `.npz` output format.
+### "Model pre-loading failed"
+Normal on first run. The model downloads from HuggingFace to your network volume (~5-10 min). Check RunPod logs.
 
-### "RUNPOD_API_KEY not set"
-Set your RunPod API key:
-```bash
-export RUNPOD_API_KEY="your-key"
-```
+### "No module named 'hymotion'"
+The Docker image didn't build correctly. Check GitHub Actions logs.
 
-### "Job timed out"
-The default timeout is 10 minutes. For longer generations, the RunPod worker may need more time to cold start. Try again or check RunPod dashboard.
+### Job times out
+- First run can take 10+ minutes (model download)
+- Increase execution timeout in endpoint settings
 
-### Motion looks wrong
-- Check that your character uses standard Mixamo skeleton naming
-- Try adjusting `--guidance-scale` for different motion styles
-- Use `--save-raw` to inspect the raw SMPL-H data
+### Wrong region for network volume
+Network volumes are region-locked. Delete and recreate in a region with 48GB GPU availability.
 
-## RunPod Setup Guide
+### GPU not available
+48GB GPUs can have limited availability. Try:
+- Different region
+- Wait and retry
+- Use 80GB GPU (more expensive but more available)
 
-Complete walkthrough for deploying to RunPod serverless.
+---
 
-### Step 1: Create RunPod Account
+## FBX Export (Optional)
 
-1. Go to [runpod.io](https://www.runpod.io)
-2. Click **Sign Up** (top right)
-3. Create account with email or GitHub
+To export `.fbx` files, install Autodesk FBX SDK:
 
-### Step 2: Add Credits
+1. Download from [Autodesk](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-3)
+2. Install Python bindings
+3. Then use: `python client.py -p "walking" -o walk.fbx`
 
-1. Go to [Billing](https://www.runpod.io/console/user/billing)
-2. Add payment method
-3. Add credits ($10-25 is enough to start testing)
+Without FBX SDK, use `.npz` format and convert in Blender.
 
-### Step 3: Get Your API Key
+---
 
-1. Go to [Settings → API Keys](https://www.runpod.io/console/user/settings)
-2. Click **Create API Key**
-3. Give it a name like "motion-creator"
-4. **Copy and save the key** - you won't see it again
+## Links
 
-```bash
-export RUNPOD_API_KEY="rp_xxxxxxxxxxxxxxxx"
-```
-
-### Step 4: Create Network Volume (Model Storage)
-
-The HY-Motion model is ~8GB. Use a network volume instead of baking it into Docker:
-
-1. Go to [Storage → Network Volumes](https://www.runpod.io/console/user/storage)
-2. Click **+ New Network Volume**
-3. Configure:
-   - **Name:** `hy-motion-models`
-   - **Region:** Pick one close to you (e.g., `US-TX-3`)
-   - **Size:** 20 GB
-4. Click **Create**
-5. **Note the region** - your endpoint must be in the same region
-
-### Step 5: Create Serverless Endpoint
-
-1. Go to [Serverless → Endpoints](https://www.runpod.io/console/serverless)
-2. Click **+ New Endpoint**
-3. Fill in:
-
-| Field | Value |
-|-------|-------|
-| **Endpoint Name** | `hy-motion` |
-| **Container Image** | `ghcr.io/YOUR_USERNAME/motion-creator/hy-motion:latest` |
-| **Container Disk** | 20 GB |
-
-4. Under **GPU Configuration**:
-   - Select **A100 40GB** (or A100 80GB if unavailable)
-
-5. Under **Worker Configuration**:
-   - **Max Workers:** 1 (start small)
-   - **Idle Timeout:** 5 seconds
-   - **Execution Timeout:** 600 seconds
-
-6. Under **Advanced**:
-   - **Select Network Volume:** Choose `hy-motion-models`
-   - **Volume Mount Path:** `/runpod-volume`
-
-7. Click **Create Endpoint**
-
-### Step 6: Copy Your Endpoint ID
-
-After creation, you'll see your endpoint in the list. Copy the **Endpoint ID** (looks like `abc123xyz`).
-
-```bash
-export RUNPOD_ENDPOINT_ID="your-endpoint-id"
-```
-
-### Step 7: Test Your Endpoint
-
-Test with curl:
-
-```bash
-# Submit job
-curl -X POST "https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run" \
-  -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{"input": {"prompt": "person walking forward"}}'
-
-# Check status (replace JOB_ID)
-curl "https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/JOB_ID" \
-  -H "Authorization: Bearer ${RUNPOD_API_KEY}"
-```
-
-### Recommended Settings Summary
-
-| Setting | Value |
-|---------|-------|
-| GPU | A100 40GB |
-| Worker Type | Flex (scale to zero) |
-| Max Workers | 1-2 (personal use) |
-| Idle Timeout | 5 seconds |
-| Execution Timeout | 600 seconds |
-| Network Volume | 20 GB, same region as endpoint |
-
-## License
-
-MIT License - see individual dependencies for their licenses.
+- [HY-Motion-1.0 GitHub](https://github.com/Tencent-Hunyuan/HY-Motion-1.0)
+- [HY-Motion HuggingFace](https://huggingface.co/tencent/HY-Motion-1.0)
+- [RunPod Serverless Docs](https://docs.runpod.io/serverless)
