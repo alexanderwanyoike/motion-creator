@@ -49,6 +49,33 @@ def setup_model_symlinks():
         print(f"Created symlink: {ckpts_dir} -> {volume_ckpts}")
 
 
+def check_model_complete(local_path: str, repo_id: str) -> bool:
+    """Check if model download is complete by looking for key files."""
+    if not os.path.exists(local_path):
+        return False
+
+    files = os.listdir(local_path)
+    if not files:
+        return False
+
+    # Check for model weight files (.safetensors, .bin, or .ckpt)
+    has_weights = any(
+        f.endswith(('.safetensors', '.bin', '.ckpt', '.pt'))
+        for f in files
+    )
+
+    # Check for config files
+    has_config = any(
+        f in files for f in ['config.json', 'config.yml', 'config.yaml']
+    )
+
+    # For Qwen models, check for safetensors specifically
+    if 'Qwen' in repo_id:
+        has_weights = any(f.endswith('.safetensors') for f in files)
+
+    return has_weights or has_config
+
+
 def download_models_if_needed():
     """Download required models from HuggingFace if not present."""
     from huggingface_hub import snapshot_download
@@ -65,8 +92,8 @@ def download_models_if_needed():
     for repo_id, local_subdir, optional in models_to_download:
         local_path = os.path.join(ckpts_dir, local_subdir)
 
-        # Check if already downloaded (look for any files)
-        if os.path.exists(local_path) and os.listdir(local_path):
+        # Check if already downloaded with actual model files
+        if check_model_complete(local_path, repo_id):
             print(f"Model already exists: {local_subdir}")
             continue
 
