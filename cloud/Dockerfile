@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/runpod-volume/huggingface
 ENV TRANSFORMERS_CACHE=/runpod-volume/huggingface
+ENV USE_HF_MODELS=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
