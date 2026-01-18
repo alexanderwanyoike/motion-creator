@@ -206,9 +206,97 @@ The default timeout is 10 minutes. For longer generations, the RunPod worker may
 - Try adjusting `--guidance-scale` for different motion styles
 - Use `--save-raw` to inspect the raw SMPL-H data
 
-## RunPod Configuration
+## RunPod Setup Guide
 
-Recommended settings for RunPod serverless endpoint:
+Complete walkthrough for deploying to RunPod serverless.
+
+### Step 1: Create RunPod Account
+
+1. Go to [runpod.io](https://www.runpod.io)
+2. Click **Sign Up** (top right)
+3. Create account with email or GitHub
+
+### Step 2: Add Credits
+
+1. Go to [Billing](https://www.runpod.io/console/user/billing)
+2. Add payment method
+3. Add credits ($10-25 is enough to start testing)
+
+### Step 3: Get Your API Key
+
+1. Go to [Settings → API Keys](https://www.runpod.io/console/user/settings)
+2. Click **Create API Key**
+3. Give it a name like "motion-creator"
+4. **Copy and save the key** - you won't see it again
+
+```bash
+export RUNPOD_API_KEY="rp_xxxxxxxxxxxxxxxx"
+```
+
+### Step 4: Create Network Volume (Model Storage)
+
+The HY-Motion model is ~8GB. Use a network volume instead of baking it into Docker:
+
+1. Go to [Storage → Network Volumes](https://www.runpod.io/console/user/storage)
+2. Click **+ New Network Volume**
+3. Configure:
+   - **Name:** `hy-motion-models`
+   - **Region:** Pick one close to you (e.g., `US-TX-3`)
+   - **Size:** 20 GB
+4. Click **Create**
+5. **Note the region** - your endpoint must be in the same region
+
+### Step 5: Create Serverless Endpoint
+
+1. Go to [Serverless → Endpoints](https://www.runpod.io/console/serverless)
+2. Click **+ New Endpoint**
+3. Fill in:
+
+| Field | Value |
+|-------|-------|
+| **Endpoint Name** | `hy-motion` |
+| **Container Image** | `ghcr.io/YOUR_USERNAME/motion-creator/hy-motion:latest` |
+| **Container Disk** | 20 GB |
+
+4. Under **GPU Configuration**:
+   - Select **A100 40GB** (or A100 80GB if unavailable)
+
+5. Under **Worker Configuration**:
+   - **Max Workers:** 1 (start small)
+   - **Idle Timeout:** 5 seconds
+   - **Execution Timeout:** 600 seconds
+
+6. Under **Advanced**:
+   - **Select Network Volume:** Choose `hy-motion-models`
+   - **Volume Mount Path:** `/runpod-volume`
+
+7. Click **Create Endpoint**
+
+### Step 6: Copy Your Endpoint ID
+
+After creation, you'll see your endpoint in the list. Copy the **Endpoint ID** (looks like `abc123xyz`).
+
+```bash
+export RUNPOD_ENDPOINT_ID="your-endpoint-id"
+```
+
+### Step 7: Test Your Endpoint
+
+Test with curl:
+
+```bash
+# Submit job
+curl -X POST "https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"prompt": "person walking forward"}}'
+
+# Check status (replace JOB_ID)
+curl "https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/JOB_ID" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}"
+```
+
+### Recommended Settings Summary
 
 | Setting | Value |
 |---------|-------|
@@ -217,18 +305,7 @@ Recommended settings for RunPod serverless endpoint:
 | Max Workers | 1-2 (personal use) |
 | Idle Timeout | 5 seconds |
 | Execution Timeout | 600 seconds |
-
-## Model Storage Options
-
-### Option A: Network Volume (Recommended)
-1. Create a RunPod network volume (~10GB)
-2. Run `download_model.py` once to populate it
-3. Mount volume at `/runpod-volume` in endpoint settings
-
-### Option B: Baked into Docker Image
-1. Uncomment the download line in Dockerfile
-2. Build image (will be ~10GB+)
-3. Slower to update but no separate volume needed
+| Network Volume | 20 GB, same region as endpoint |
 
 ## License
 
