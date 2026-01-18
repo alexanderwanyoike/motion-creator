@@ -1,42 +1,43 @@
 """
 RunPod Serverless Handler for HY-Motion-1.0
 
-Generates SMPL-H motion data from text prompts.
-Returns raw motion data (numpy arrays) for local FBX export.
+Generates SMPL-H motion data from text prompts using the official HY-Motion inference code.
 """
 
 import os
+import sys
 import io
 import base64
 import time
 from typing import Any
 
 import numpy as np
-import torch
 import runpod
 
+# Add HY-Motion to path
+sys.path.insert(0, "/app/hy-motion")
+
 # Configuration
-MODEL_REPO = "Tencent-Hunyuan/HY-Motion-1.0"
-MODEL_PATH = os.environ.get("MODEL_PATH", "/runpod-volume/models/hy-motion-1.0")
-DISABLE_PROMPT_ENGINEERING = os.environ.get("DISABLE_PROMPT_ENGINEERING", "False").lower() == "true"
-DEFAULT_NUM_FRAMES = 120  # ~4 seconds at 30fps
+MODEL_PATH = os.environ.get("MODEL_PATH", "/runpod-volume/models/HY-Motion-1.0")
+MODEL_REPO = "tencent/HY-Motion-1.0"
 DEFAULT_FPS = 30
 
-# Global model reference (loaded once, reused across requests)
-model = None
-device = None
+# Global runtime reference
+runtime = None
 
 
 def download_model_if_needed():
     """Download model from HuggingFace if not present."""
     from huggingface_hub import snapshot_download
-    import os
 
-    if os.path.exists(MODEL_PATH) and os.listdir(MODEL_PATH):
+    # Check if model exists by looking for config.yml
+    config_path = os.path.join(MODEL_PATH, "config.yml")
+    if os.path.exists(config_path):
         print(f"Model already exists at {MODEL_PATH}")
         return MODEL_PATH
 
     print(f"Downloading {MODEL_REPO} to {MODEL_PATH}...")
+    os.makedirs(MODEL_PATH, exist_ok=True)
     snapshot_download(
         repo_id=MODEL_REPO,
         local_dir=MODEL_PATH,
@@ -47,48 +48,41 @@ def download_model_if_needed():
 
 
 def load_model():
-    """Load HY-Motion-1.0 model into GPU memory."""
-    global model, device
+    """Load HY-Motion-1.0 runtime."""
+    global runtime
 
-    if model is not None:
-        return model
+    if runtime is not None:
+        return runtime
 
-    # Auto-download if needed
     model_path = download_model_if_needed()
 
     print(f"Loading HY-Motion-1.0 from {model_path}...")
     start_time = time.time()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    # Import HY-Motion runtime
+    from hymotion.utils.t2m_runtime import T2MRuntime
 
-    # Import HY-Motion pipeline
-    # Note: Adjust import path based on actual HY-Motion package structure
-    try:
-        from hy_motion import HYMotionPipeline
-        model = HYMotionPipeline.from_pretrained(
-            model_path,
-            torch_dtype=torch.float16,
-            device_map="auto",
-        )
-    except ImportError:
-        # Fallback: Try loading from diffusers-style pipeline
-        from diffusers import DiffusionPipeline
-        model = DiffusionPipeline.from_pretrained(
-            model_path,
-            torch_dtype=torch.float16,
-            custom_pipeline="hy_motion",
-        ).to(device)
+    # Initialize runtime
+    config_path = os.path.join(model_path, "config.yml")
+    ckpt_name = "latest.ckpt"
+
+    runtime = T2MRuntime(
+        config_path=config_path,
+        ckpt_name=ckpt_name,
+        device_ids=[0],  # Use first GPU
+        prompt_engineering_model_path=None,
+        prompt_engineering_host=None,
+    )
 
     load_time = time.time() - start_time
     print(f"Model loaded in {load_time:.2f}s")
 
-    return model
+    return runtime
 
 
 def generate_motion(
     prompt: str,
-    num_frames: int = DEFAULT_NUM_FRAMES,
+    duration: float = 4.0,
     fps: int = DEFAULT_FPS,
     guidance_scale: float = 7.5,
     num_inference_steps: int = 50,
@@ -99,60 +93,78 @@ def generate_motion(
 
     Args:
         prompt: Text description of the motion
-        num_frames: Number of frames to generate
+        duration: Duration in seconds
         fps: Frames per second
-        guidance_scale: Classifier-free guidance scale
+        guidance_scale: CFG scale for generation
         num_inference_steps: Number of diffusion steps
         seed: Random seed for reproducibility
 
     Returns:
         Dictionary containing motion data and metadata
     """
-    global model, device
+    global runtime
 
-    if model is None:
+    if runtime is None:
         load_model()
 
     # Set random seed if provided
-    generator = None
     if seed is not None:
-        generator = torch.Generator(device=device).manual_seed(seed)
+        import torch
+        import random
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
     print(f"Generating motion for: '{prompt}'")
-    print(f"  Frames: {num_frames}, FPS: {fps}, Steps: {num_inference_steps}")
+    print(f"  Duration: {duration}s, FPS: {fps}, Steps: {num_inference_steps}")
     start_time = time.time()
 
-    # Generate motion
-    with torch.inference_mode():
-        output = model(
-            prompt=prompt,
-            num_frames=num_frames,
-            fps=fps,
-            guidance_scale=guidance_scale,
-            num_inference_steps=num_inference_steps,
-            generator=generator,
-        )
+    # Generate motion using HY-Motion runtime
+    motion_result = runtime.generate_motion(
+        text=prompt,
+        duration=duration,
+        cfg_scale=guidance_scale,
+        validation_steps=num_inference_steps,
+        seed=seed if seed is not None else int(time.time()),
+    )
 
     generation_time = time.time() - start_time
     print(f"Motion generated in {generation_time:.2f}s")
 
-    # Extract motion data from output
-    # HY-Motion outputs SMPL-H format: body_pose, global_orient, transl, betas
+    # Extract motion data - HY-Motion outputs SMPL-H format
+    # The output contains motion data with shape (T, 201) where:
+    # D = 3 (root trans) + 6 (root orient) + 21*6 (joint rotations) + 22*3 (joint positions)
+    motion = motion_result
+    if hasattr(motion_result, 'motion'):
+        motion = motion_result.motion
+    if hasattr(motion, 'cpu'):
+        motion = motion.cpu().numpy()
+    if not isinstance(motion, np.ndarray):
+        motion = np.array(motion)
+
+    num_frames = motion.shape[0] if motion.ndim >= 1 else int(duration * fps)
+
     motion_data = {
-        "body_pose": output.body_pose.cpu().numpy() if hasattr(output, "body_pose") else output.motion.cpu().numpy(),
-        "global_orient": output.global_orient.cpu().numpy() if hasattr(output, "global_orient") else None,
-        "transl": output.transl.cpu().numpy() if hasattr(output, "transl") else None,
-        "betas": output.betas.cpu().numpy() if hasattr(output, "betas") else None,
+        "motion": motion,
+        "fps": fps,
+        "duration": duration,
+        "num_frames": num_frames,
     }
 
-    # Handle case where output is just a motion tensor
-    if not hasattr(output, "body_pose") and hasattr(output, "motion"):
-        motion_data["motion"] = output.motion.cpu().numpy()
+    # If motion is in the expected 201-dim format, split out components
+    if motion.ndim >= 1 and motion.shape[-1] == 201:
+        motion_data["root_translation"] = motion[..., :3]
+        motion_data["root_orientation"] = motion[..., 3:9]
+        motion_data["joint_rotations"] = motion[..., 9:135]
+        motion_data["joint_positions"] = motion[..., 135:201]
 
     return {
         "motion_data": motion_data,
         "metadata": {
             "prompt": prompt,
+            "duration": duration,
             "num_frames": num_frames,
             "fps": fps,
             "guidance_scale": guidance_scale,
@@ -187,22 +199,13 @@ def handler(job: dict) -> dict:
     Expected input format:
     {
         "input": {
-            "prompt": "character walking forward",
-            "num_frames": 120,
+            "prompt": "person walking forward",
+            "duration": 4.0,
             "fps": 30,
             "guidance_scale": 7.5,
             "num_inference_steps": 50,
             "seed": null
         }
-    }
-
-    Returns:
-    {
-        "motion_data": {
-            "body_pose": {"data": "base64...", "dtype": "float32", "shape": [120, 63]},
-            ...
-        },
-        "metadata": {...}
     }
     """
     job_input = job.get("input", {})
@@ -215,7 +218,7 @@ def handler(job: dict) -> dict:
     # Extract optional parameters with defaults
     params = {
         "prompt": prompt,
-        "num_frames": job_input.get("num_frames", DEFAULT_NUM_FRAMES),
+        "duration": job_input.get("duration", 4.0),
         "fps": job_input.get("fps", DEFAULT_FPS),
         "guidance_scale": job_input.get("guidance_scale", 7.5),
         "num_inference_steps": job_input.get("num_inference_steps", 50),
@@ -238,9 +241,14 @@ def handler(job: dict) -> dict:
         }
 
 
-# Load model on cold start (RunPod FlashBoot optimization)
+# Load model on cold start
 print("Initializing HY-Motion handler...")
-load_model()
+try:
+    load_model()
+    print("Model loaded successfully!")
+except Exception as e:
+    print(f"Warning: Model pre-loading failed: {e}")
+    print("Model will be loaded on first request.")
 
 # Start RunPod serverless
 runpod.serverless.start({"handler": handler})
