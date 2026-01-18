@@ -123,8 +123,7 @@ def load_model():
         config_path=config_path,
         ckpt_name="latest.ckpt",
         device_ids=[0],
-        prompt_engineering_model_path=None,
-        prompt_engineering_host=None,
+        disable_prompt_engineering=True,
     )
 
     load_time = time.time() - start_time
