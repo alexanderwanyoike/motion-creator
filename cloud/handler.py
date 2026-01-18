@@ -49,78 +49,34 @@ def setup_model_symlinks():
         print(f"Created symlink: {ckpts_dir} -> {volume_ckpts}")
 
 
-def check_model_complete(local_path: str, repo_id: str) -> bool:
-    """Check if model download is complete by looking for key files."""
-    if not os.path.exists(local_path):
-        return False
+def download_hy_motion_checkpoint():
+    """Download HY-Motion checkpoint to network volume if not present.
 
-    files = os.listdir(local_path)
-    if not files:
-        return False
-
-    # Check for model weight files (.safetensors, .bin, or .ckpt)
-    has_weights = any(
-        f.endswith(('.safetensors', '.bin', '.ckpt', '.pt'))
-        for f in files
-    )
-
-    # Check for config files
-    has_config = any(
-        f in files for f in ['config.json', 'config.yml', 'config.yaml']
-    )
-
-    # For Qwen models, check for safetensors specifically
-    if 'Qwen' in repo_id:
-        has_weights = any(f.endswith('.safetensors') for f in files)
-
-    return has_weights or has_config
-
-
-def download_models_if_needed():
-    """Download required models from HuggingFace if not present."""
+    Note: CLIP and Qwen3-8B text encoders are downloaded automatically by
+    HY-Motion using HuggingFace Hub (USE_HF_MODELS=1 is default).
+    They get cached to HF_HOME which points to the network volume.
+    """
     from huggingface_hub import snapshot_download
 
     ckpts_dir = os.path.join(VOLUME_PATH, "ckpts")
+    model_path = os.path.join(ckpts_dir, "tencent", MODEL_NAME)
 
-    models_to_download = [
-        # (repo_id, local_subdir, optional)
-        (f"tencent/HY-Motion-1.0", f"tencent/{MODEL_NAME}", False),
-        ("openai/clip-vit-large-patch14", "clip-vit-large-patch14", False),
-        ("Qwen/Qwen3-8B", "Qwen3-8B", False),  # Text encoder for HY-Motion
-    ]
+    # Check if HY-Motion checkpoint exists
+    ckpt_file = os.path.join(model_path, "latest.ckpt")
+    if os.path.exists(ckpt_file):
+        print(f"HY-Motion checkpoint already exists: {model_path}")
+        return
 
-    for repo_id, local_subdir, optional in models_to_download:
-        local_path = os.path.join(ckpts_dir, local_subdir)
+    print(f"Downloading tencent/HY-Motion-1.0 ({MODEL_NAME})...")
+    os.makedirs(os.path.join(ckpts_dir, "tencent"), exist_ok=True)
 
-        # Check if already downloaded with actual model files
-        if check_model_complete(local_path, repo_id):
-            print(f"Model already exists: {local_subdir}")
-            continue
-
-        print(f"Downloading {repo_id} to {local_path}...")
-        try:
-            os.makedirs(local_path, exist_ok=True)
-
-            # For tencent model, we need to download specific subfolder
-            if repo_id == "tencent/HY-Motion-1.0":
-                snapshot_download(
-                    repo_id=repo_id,
-                    local_dir=os.path.join(ckpts_dir, "tencent"),
-                    local_dir_use_symlinks=False,
-                    allow_patterns=[f"{MODEL_NAME}/*"],
-                )
-            else:
-                snapshot_download(
-                    repo_id=repo_id,
-                    local_dir=local_path,
-                    local_dir_use_symlinks=False,
-                )
-            print(f"Downloaded: {local_subdir}")
-        except Exception as e:
-            if optional:
-                print(f"Optional model {repo_id} not downloaded: {e}")
-            else:
-                raise
+    snapshot_download(
+        repo_id="tencent/HY-Motion-1.0",
+        local_dir=os.path.join(ckpts_dir, "tencent"),
+        local_dir_use_symlinks=False,
+        allow_patterns=[f"{MODEL_NAME}/*"],
+    )
+    print(f"Downloaded: {MODEL_NAME}")
 
 
 def load_model():
@@ -130,9 +86,9 @@ def load_model():
     if runtime is not None:
         return runtime
 
-    # Set up symlinks and download models
+    # Set up symlinks and download HY-Motion checkpoint
     setup_model_symlinks()
-    download_models_if_needed()
+    download_hy_motion_checkpoint()
 
     print(f"Loading {MODEL_NAME}...")
     start_time = time.time()
