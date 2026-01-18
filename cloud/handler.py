@@ -208,6 +208,14 @@ def encode_numpy_arrays(data: dict) -> dict:
     encoded = {}
     for key, value in data.items():
         if isinstance(value, np.ndarray):
+            # Ensure array is a numeric type (convert object arrays)
+            if value.dtype == object:
+                try:
+                    value = np.array(value, dtype=np.float32)
+                except (ValueError, TypeError):
+                    # Skip arrays that can't be converted
+                    print(f"Warning: Skipping {key} - cannot convert to float array")
+                    continue
             buffer = io.BytesIO()
             np.save(buffer, value, allow_pickle=False)
             encoded[key] = {
