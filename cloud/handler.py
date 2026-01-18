@@ -162,6 +162,17 @@ def generate_motion(
     generation_time = time.time() - start_time
     print(f"Motion generated in {generation_time:.2f}s")
 
+    # Debug: print what we got back
+    print(f"motion_result type: {type(motion_result)}")
+    if isinstance(motion_result, dict):
+        print(f"motion_result keys: {list(motion_result.keys())}")
+        for k, v in motion_result.items():
+            print(f"  {k}: type={type(v)}, shape={getattr(v, 'shape', 'N/A')}, dtype={getattr(v, 'dtype', 'N/A')}")
+    elif isinstance(motion_result, (list, tuple)):
+        print(f"motion_result length: {len(motion_result)}")
+        for i, item in enumerate(motion_result[:3]):  # First 3 items
+            print(f"  [{i}]: type={type(item)}")
+
     # Extract motion data
     motion = motion_result
     if hasattr(motion_result, 'motion'):
