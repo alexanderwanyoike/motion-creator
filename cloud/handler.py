@@ -16,7 +16,8 @@ import torch
 import runpod
 
 # Configuration
-MODEL_PATH = os.environ.get("MODEL_PATH", "/runpod-volume/models/hy-motion-1.0")
+MODEL_REPO = "Tencent-Hunyuan/HY-Motion-1.0"
+MODEL_PATH = os.environ.get("MODEL_PATH", "/tmp/hy-motion-1.0")
 DISABLE_PROMPT_ENGINEERING = os.environ.get("DISABLE_PROMPT_ENGINEERING", "False").lower() == "true"
 DEFAULT_NUM_FRAMES = 120  # ~4 seconds at 30fps
 DEFAULT_FPS = 30
@@ -26,6 +27,25 @@ model = None
 device = None
 
 
+def download_model_if_needed():
+    """Download model from HuggingFace if not present."""
+    from huggingface_hub import snapshot_download
+    import os
+
+    if os.path.exists(MODEL_PATH) and os.listdir(MODEL_PATH):
+        print(f"Model already exists at {MODEL_PATH}")
+        return MODEL_PATH
+
+    print(f"Downloading {MODEL_REPO} to {MODEL_PATH}...")
+    snapshot_download(
+        repo_id=MODEL_REPO,
+        local_dir=MODEL_PATH,
+        local_dir_use_symlinks=False,
+    )
+    print("Download complete!")
+    return MODEL_PATH
+
+
 def load_model():
     """Load HY-Motion-1.0 model into GPU memory."""
     global model, device
@@ -33,7 +53,10 @@ def load_model():
     if model is not None:
         return model
 
-    print(f"Loading HY-Motion-1.0 from {MODEL_PATH}...")
+    # Auto-download if needed
+    model_path = download_model_if_needed()
+
+    print(f"Loading HY-Motion-1.0 from {model_path}...")
     start_time = time.time()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -44,7 +67,7 @@ def load_model():
     try:
         from hy_motion import HYMotionPipeline
         model = HYMotionPipeline.from_pretrained(
-            MODEL_PATH,
+            model_path,
             torch_dtype=torch.float16,
             device_map="auto",
         )
@@ -52,7 +75,7 @@ def load_model():
         # Fallback: Try loading from diffusers-style pipeline
         from diffusers import DiffusionPipeline
         model = DiffusionPipeline.from_pretrained(
-            MODEL_PATH,
+            model_path,
             torch_dtype=torch.float16,
             custom_pipeline="hy_motion",
         ).to(device)
