@@ -32,9 +32,10 @@ RUN git lfs install
 # Upgrade pip and install build tools
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# Clone HY-Motion-1.0 repository
+# Clone HY-Motion-1.0 repository and pull LFS files
 WORKDIR /app
-RUN git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /app/hy-motion
+RUN git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /app/hy-motion && \
+    cd /app/hy-motion && git lfs pull
 
 # Install PyTorch 2.5.1 with CUDA 12.1 support FIRST
 RUN python -m pip install --no-cache-dir \
