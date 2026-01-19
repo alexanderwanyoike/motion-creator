@@ -36,14 +36,16 @@ RUN python -m pip install --upgrade pip setuptools wheel
 WORKDIR /app
 RUN git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /app/hy-motion
 
-# Install HY-Motion requirements (includes PyTorch)
-WORKDIR /app/hy-motion
-RUN python -m pip install --no-cache-dir -r requirements.txt
-
-# Reinstall PyTorch with CUDA 12.1 support (in case requirements.txt installed CPU version)
+# Install PyTorch 2.5.1 with CUDA 12.1 support FIRST
 RUN python -m pip install --no-cache-dir \
-    torch torchvision torchaudio \
+    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
     --index-url https://download.pytorch.org/whl/cu121
+
+# Install HY-Motion requirements (skip torch since we installed it with CUDA)
+WORKDIR /app/hy-motion
+RUN python -m pip install --no-cache-dir \
+    --extra-index-url https://gitlab.inria.fr/api/v4/projects/18692/packages/pypi/simple \
+    -r requirements.txt
 
 # Install RunPod SDK
 RUN python -m pip install --no-cache-dir runpod>=1.6.0
