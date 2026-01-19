@@ -232,10 +232,9 @@ def generate_motion(
         "metadata": {
             "prompt": prompt,
             "duration": duration,
-            "num_frames": num_frames,
+            "num_frames": motion_data.get("num_frames", int(duration * fps)),
             "fps": fps,
             "guidance_scale": guidance_scale,
-            "num_inference_steps": num_inference_steps,
             "seed": seed,
             "generation_time": generation_time,
             "model": MODEL_NAME,
