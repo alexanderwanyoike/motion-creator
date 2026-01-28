@@ -1,25 +1,26 @@
-# HY-Motion Cloud Pipeline
+# Motion Creator
 
-Generate AI motion animations from text prompts using [HY-Motion-1.0](https://github.com/Tencent-Hunyuan/HY-Motion-1.0) on RunPod serverless, with local FBX export and Mixamo retargeting.
+Generate AI motion animations from text prompts using [HY-Motion-1.0](https://github.com/Tencent-Hunyuan/HY-Motion-1.0) on RunPod serverless. Includes a Gradio web UI for interactive generation and a CLI for scripted workflows, with local FBX export and Mixamo retargeting.
 
 ## Architecture
 
-```
-┌────────────────────────┐     ┌──────────────────────────────┐
-│  Your Machine (Local)  │     │    RunPod Serverless (GPU)   │
-│                        │     │                              │
-│  1. Send prompt  ─────────▶  │  HY-Motion-1.0 (1B params)   │
-│                        │     │  - Text → Motion generation  │
-│  2. Receive motion ◀──────── │  - Output: SMPL-H data       │
-│     (base64 numpy)     │     │    (~100KB)                  │
-│                        │     └──────────────────────────────┘
-│  3. Local processing:  │
-│     - Retarget to      │
-│       Mixamo skeleton  │
-│     - Export to FBX    │
-│                        │
-│  4. Output: .fbx       │
-└────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Local["Your Machine (Local)"]
+        A[Text Prompt] --> B[Client]
+        B --> E[Retarget to Mixamo]
+        E --> F[Export FBX]
+        F --> G[".fbx / .npz"]
+    end
+
+    subgraph Cloud["RunPod Serverless (GPU)"]
+        C[HY-Motion-1.0<br/>1B params]
+        D[SMPL-H Data<br/>~100KB]
+        C --> D
+    end
+
+    B -- "1. Send prompt" --> C
+    D -- "2. Return motion<br/>(base64 numpy)" --> E
 ```
 
 ## Cost Estimate
@@ -158,6 +159,27 @@ Options:
 
 ---
 
+## Web UI (Gradio)
+
+For interactive use, run the Gradio web app:
+
+```bash
+cd local
+python app.py
+```
+
+Open http://127.0.0.1:7860 in your browser.
+
+1. Enter a motion description (e.g., "a person walking forward")
+2. Set duration (1-10 seconds)
+3. Optionally set a seed for reproducibility
+4. Click "Generate Motion"
+5. View the animated 3D visualization
+
+Output is saved to `output/gradio/` as `.npz` motion data and metadata JSON.
+
+---
+
 ## File Structure
 
 ```
@@ -166,12 +188,23 @@ motion-creator/
 │   └── build-push.yml      # CI/CD: builds & pushes to ghcr.io
 ├── cloud/
 │   ├── Dockerfile          # Clones HY-Motion, installs deps
-│   └── handler.py          # RunPod serverless handler
+│   ├── handler.py          # RunPod serverless handler
+│   └── stats/
+│       ├── Mean.npy        # Motion normalization stats
+│       └── Std.npy
 ├── local/
+│   ├── app.py              # Gradio web UI
 │   ├── client.py           # CLI tool
 │   ├── retarget.py         # SMPL-H → Mixamo conversion
 │   ├── export_fbx.py       # FBX export (requires FBX SDK)
-│   └── requirements.txt
+│   ├── visualize.py        # Motion visualization utilities
+│   ├── hymotion/           # Local HY-Motion utilities
+│   │   ├── pipeline/       # Body model handling
+│   │   └── utils/          # Geometry & web visualization
+│   ├── scripts/
+│   │   └── gradio/         # Web templates & assets
+│   ├── requirements.txt
+│   └── .env.example
 └── README.md
 ```
 
