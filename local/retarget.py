@@ -151,6 +151,63 @@ class RetargetedMotion:
     fps: int = 30
 
 
+def rot6d_to_rotation_matrix(rot6d: np.ndarray) -> np.ndarray:
+    """
+    Convert 6D rotation representation to rotation matrix.
+
+    The 6D representation consists of the first two columns of a rotation matrix.
+    We reconstruct the full matrix by orthonormalizing and computing the third column.
+
+    Args:
+        rot6d: (..., 6) 6D rotation representation
+
+    Returns:
+        (..., 3, 3) rotation matrices
+    """
+    # Split into two 3D vectors
+    a1 = rot6d[..., :3]
+    a2 = rot6d[..., 3:6]
+
+    # Normalize first vector
+    b1 = a1 / (np.linalg.norm(a1, axis=-1, keepdims=True) + 1e-8)
+
+    # Make second vector orthogonal to first and normalize
+    dot = np.sum(b1 * a2, axis=-1, keepdims=True)
+    b2 = a2 - dot * b1
+    b2 = b2 / (np.linalg.norm(b2, axis=-1, keepdims=True) + 1e-8)
+
+    # Third vector is cross product
+    b3 = np.cross(b1, b2)
+
+    # Stack into rotation matrix
+    return np.stack([b1, b2, b3], axis=-1)
+
+
+def rot6d_to_axis_angle(rot6d: np.ndarray) -> np.ndarray:
+    """
+    Convert 6D rotation representation to axis-angle.
+
+    Args:
+        rot6d: (..., 6) 6D rotation representation
+
+    Returns:
+        (..., 3) axis-angle representation
+    """
+    original_shape = rot6d.shape[:-1]
+    rot6d_flat = rot6d.reshape(-1, 6)
+
+    matrices = rot6d_to_rotation_matrix(rot6d_flat)
+
+    # Convert each matrix to axis-angle
+    axis_angles = []
+    for mat in matrices:
+        rot = Rotation.from_matrix(mat)
+        axis_angles.append(rot.as_rotvec())
+
+    result = np.array(axis_angles)
+    return result.reshape(original_shape + (3,))
+
+
 def axis_angle_to_euler(axis_angle: np.ndarray) -> np.ndarray:
     """Convert axis-angle rotation to euler angles (XYZ order)."""
     if axis_angle.shape[-1] == 3:
@@ -278,6 +335,17 @@ def retarget_from_motion_dict(
     body_pose = motion_data.get("body_pose")
     global_orient = motion_data.get("global_orient")
     transl = motion_data.get("transl")
+
+    # Handle 6D rotation format (rot6d)
+    if body_pose is None and "rot6d" in motion_data:
+        rot6d = motion_data["rot6d"]
+        # rot6d shape: (num_frames, 22, 6) - 22 joints including pelvis
+        if rot6d.ndim == 3 and rot6d.shape[-1] == 6:
+            # Convert 6D to axis-angle
+            axis_angle = rot6d_to_axis_angle(rot6d)  # (num_frames, 22, 3)
+            # First joint is global orient (pelvis), rest is body pose
+            global_orient = axis_angle[:, 0, :]
+            body_pose = axis_angle[:, 1:22, :]  # 21 body joints
 
     # Handle case where motion is stored as single 'motion' key
     if body_pose is None and "motion" in motion_data:
