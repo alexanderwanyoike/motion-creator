@@ -4,22 +4,23 @@ Generate AI motion animations from text prompts using [HY-Motion-1.0](https://gi
 
 ## Architecture
 
-```
-┌────────────────────────┐     ┌──────────────────────────────┐
-│  Your Machine (Local)  │     │    RunPod Serverless (GPU)   │
-│                        │     │                              │
-│  1. Send prompt  ─────────▶  │  HY-Motion-1.0 (1B params)   │
-│                        │     │  - Text → Motion generation  │
-│  2. Receive motion ◀──────── │  - Output: SMPL-H data       │
-│     (base64 numpy)     │     │    (~100KB)                  │
-│                        │     └──────────────────────────────┘
-│  3. Local processing:  │
-│     - Retarget to      │
-│       Mixamo skeleton  │
-│     - Export to FBX    │
-│                        │
-│  4. Output: .fbx       │
-└────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Local["Your Machine (Local)"]
+        A[Text Prompt] --> B[Client]
+        B --> E[Retarget to Mixamo]
+        E --> F[Export FBX]
+        F --> G[".fbx / .npz"]
+    end
+
+    subgraph Cloud["RunPod Serverless (GPU)"]
+        C[HY-Motion-1.0<br/>1B params]
+        D[SMPL-H Data<br/>~100KB]
+        C --> D
+    end
+
+    B -- "1. Send prompt" --> C
+    D -- "2. Return motion<br/>(base64 numpy)" --> E
 ```
 
 ## Cost Estimate
