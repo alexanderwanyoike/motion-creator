@@ -119,10 +119,14 @@ def load_model():
     # Model path relative to hy-motion dir
     model_path = f"ckpts/tencent/{MODEL_NAME}"
     config_path = os.path.join(model_path, "config.yml")
+    ckpt_path = os.path.join(model_path, "latest.ckpt")
+
+    print(f">>> DEBUG: config_path: {config_path}, exists: {os.path.exists(config_path)}")
+    print(f">>> DEBUG: ckpt_path: {ckpt_path}, exists: {os.path.exists(ckpt_path)}")
 
     runtime = T2MRuntime(
         config_path=config_path,
-        ckpt_name="latest.ckpt",
+        ckpt_name=ckpt_path,
         device_ids=[0],
         disable_prompt_engineering=True,
     )
