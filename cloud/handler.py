@@ -96,6 +96,23 @@ def load_model():
     # Change to hy-motion directory so relative paths work
     os.chdir(HY_MOTION_DIR)
 
+    # DEBUG: Check if stats files exist
+    stats_dir = os.path.join(HY_MOTION_DIR, "stats")
+    print(f">>> DEBUG: Checking stats directory: {stats_dir}")
+    print(f">>> DEBUG: stats dir exists: {os.path.exists(stats_dir)}")
+    if os.path.exists(stats_dir):
+        print(f">>> DEBUG: stats contents: {os.listdir(stats_dir)}")
+        mean_path = os.path.join(stats_dir, "Mean.npy")
+        std_path = os.path.join(stats_dir, "Std.npy")
+        print(f">>> DEBUG: Mean.npy exists: {os.path.exists(mean_path)}")
+        print(f">>> DEBUG: Std.npy exists: {os.path.exists(std_path)}")
+        if os.path.exists(mean_path):
+            mean = np.load(mean_path)
+            print(f">>> DEBUG: Mean shape: {mean.shape}, first 5 values: {mean[:5]}")
+        if os.path.exists(std_path):
+            std = np.load(std_path)
+            print(f">>> DEBUG: Std shape: {std.shape}, first 5 values: {std[:5]}")
+
     # Import HY-Motion runtime
     from hymotion.utils.t2m_runtime import T2MRuntime
 

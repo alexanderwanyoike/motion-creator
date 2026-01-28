@@ -16,7 +16,17 @@ RUN apt-get update && apt-get install -y git-lfs ffmpeg \
 # Clone HY-Motion-1.0 repository and pull LFS files
 WORKDIR /app
 RUN git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /app/hy-motion && \
-    cd /app/hy-motion && git lfs pull
+    cd /app/hy-motion && git lfs pull || echo "Warning: git lfs pull failed, will use fallback stats"
+
+# Copy stats files (guaranteed to have correct data, overwrites any LFS pointer files)
+COPY stats/ /app/hy-motion/stats/
+
+# Verify stats files are valid
+RUN cd /app/hy-motion && \
+    echo "=== Verifying stats files ===" && \
+    ls -la stats/ && \
+    python3 -c "import numpy as np; m=np.load('stats/Mean.npy'); print(f'Mean.npy shape: {m.shape}, values: {m[:3]}')" && \
+    python3 -c "import numpy as np; s=np.load('stats/Std.npy'); print(f'Std.npy shape: {s.shape}, values: {s[:3]}')"
 
 # Install HY-Motion requirements (PyTorch already installed in base image)
 WORKDIR /app/hy-motion
